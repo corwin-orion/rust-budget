@@ -2,23 +2,20 @@ use chrono::{Datelike, Duration, Local, NaiveDate};
 use serde::{Deserialize, Serialize};
 use std::{collections::VecDeque, fs, io};
 
-// Define a struct to represent a financial transaction
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct Transaction {
-    amount: f64, // The transaction amount (positive for credit, negative for debit)
-    date: NaiveDate, // The date the transaction occurs
+    amount: f64, // Transaction amount (positive for credit, negative for debit)
+    date: NaiveDate, // Date of the transaction
     recurrence: Option<(String, usize)>, // Optional recurrence (type and number of occurrences)
 }
 
-// Define a struct to represent the budget state
 #[derive(Debug, Serialize, Deserialize)]
 struct BudgetState {
-    balance: f64, // Current account balance
+    balance: f64, // Current balance
     transactions: Vec<Transaction>, // List of transactions
 }
 
 impl BudgetState {
-    // Create a new budget state with a given initial balance
     fn new(balance: f64) -> Self {
         Self {
             balance,
@@ -26,20 +23,47 @@ impl BudgetState {
         }
     }
 
-    // Add a new transaction to the budget state
+    // Adds a transaction to the budget state
     fn add_transaction(&mut self, amount: f64, date: NaiveDate, recurrence: Option<(String, usize)>) {
         self.transactions.push(Transaction { amount, date, recurrence });
     }
 
-    // Forecasts the budget balance over time
+    // Lists all credit transactions (positive amounts)
+    fn list_credits(&self) {
+        for (i, t) in self.transactions.iter().enumerate() {
+            if t.amount > 0.0 {
+                println!("{}: {:?}", i, t);
+            }
+        }
+    }
+
+    // Lists all debit transactions (negative amounts)
+    fn list_debits(&self) {
+        for (i, t) in self.transactions.iter().enumerate() {
+            if t.amount < 0.0 {
+                println!("{}: {:?}", i, t);
+            }
+        }
+    }
+
+    // Deletes a transaction by index
+    fn delete_transaction(&mut self, index: usize) {
+        if index < self.transactions.len() {
+            self.transactions.remove(index);
+        } else {
+            println!("Invalid index");
+        }
+    }
+
+    // Forecasts the balance for the next 12 months or until balance hits zero
     fn forecast(&self) {
         let mut balance = self.balance;
-        let mut events: VecDeque<Transaction> = VecDeque::new(); // Queue for upcoming transactions
-        let mut month_balances = vec![]; // Stores monthly balances
-        let mut current_date = Local::now().date_naive(); // Get the current date
-        let mut zero_hit = false; // Flag to track if balance reaches zero
+        let mut events: VecDeque<Transaction> = VecDeque::new();
+        let mut month_balances = vec![];
+        let mut current_date = Local::now().date_naive();
+        let mut zero_hit = false;
 
-        // Populate the events queue with transactions and their recurrences
+        // Process transactions and add recurrences
         for t in &self.transactions {
             events.push_back((*t).clone());
             if let Some((ref period, count)) = t.recurrence {
@@ -56,10 +80,9 @@ impl BudgetState {
             }
         }
 
-        // Sort transactions by date
         events.make_contiguous().sort_by_key(|t| t.date);
 
-        // Forecast up to 12 months or until balance reaches zero
+        // Calculate month-by-month balance
         for _ in 0..12 {
             let next_month = current_date.with_day(1).unwrap() + Duration::days(32);
             current_date = next_month.with_day(1).unwrap();
@@ -78,7 +101,6 @@ impl BudgetState {
             }
         }
 
-        // Print the forecasted balances
         for (date, bal) in month_balances {
             println!("{}: {:.2}", date.format("%Y-%m"), bal);
         }
@@ -88,13 +110,13 @@ impl BudgetState {
         }
     }
 
-    // Save budget state to a file
+    // Saves budget state to file
     fn save_to_file(&self, filename: &str) {
         let data = serde_json::to_string(self).expect("Failed to serialize");
         fs::write(filename, data).expect("Failed to write file");
     }
 
-    // Load budget state from a file (or create a new one if the file doesn't exist)
+    // Loads budget state from file
     fn load_from_file(filename: &str) -> Self {
         if let Ok(data) = fs::read_to_string(filename) {
             if let Ok(state) = serde_json::from_str(&data) {
@@ -110,14 +132,12 @@ fn main() {
     let mut budget = BudgetState::load_from_file(filename);
     
     loop {
-        // Display menu options
-        println!("1. Add transaction\n2. View forecast\n3. Exit");
+        println!("1. Add transaction\n2. View forecast\n3. List credits\n4. List debits\n5. Delete transaction\n6. Exit");
         let mut choice = String::new();
         io::stdin().read_line(&mut choice).expect("Failed to read input");
         
         match choice.trim() {
             "1" => {
-                // Get transaction details from the user
                 println!("Enter amount (positive for credit, negative for debit): ");
                 let mut amount = String::new();
                 io::stdin().read_line(&mut amount).expect("Failed to read input");
@@ -145,13 +165,22 @@ fn main() {
                     None
                 };
                 
-                // Add transaction to budget and save state
                 budget.add_transaction(amount, date, recurrence);
                 budget.save_to_file(filename);
             }
-            "2" => budget.forecast(), // Display forecast
-            "3" => {
-                budget.save_to_file(filename); // Save and exit
+            "2" => budget.forecast(),
+            "3" => budget.list_credits(),
+            "4" => budget.list_debits(),
+            "5" => {
+                println!("Enter transaction index to delete: ");
+                let mut index = String::new();
+                io::stdin().read_line(&mut index).expect("Failed to read input");
+                let index: usize = index.trim().parse().expect("Invalid index");
+                budget.delete_transaction(index);
+                budget.save_to_file(filename);
+            }
+            "6" => {
+                budget.save_to_file(filename);
                 break;
             }
             _ => println!("Invalid option, try again."),
