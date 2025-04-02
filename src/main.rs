@@ -7,7 +7,7 @@ struct Transaction {
     amount: f64,
     date: NaiveDate,
     recurrence: Option<(String, usize)>, // (weekly, biweekly, monthly), occurrences
-    note: String, // Additional field to store notes for transactions
+    note: String, // A brief note about the transaction
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -28,25 +28,51 @@ impl BudgetState {
         self.transactions.push(Transaction { amount, date, recurrence, note });
     }
 
-    fn delete_transaction(&mut self, index: usize) {
-        if index < self.transactions.len() {
-            self.transactions.remove(index);
-            println!("Transaction deleted successfully.");
-        } else {
-            println!("Invalid index. No transaction deleted.");
+    fn list_transactions(&self) {
+        println!("\nTransactions:");
+        println!("{:<5}  {:<9}  {:<10}  {:<13}  {}", "Index", "Amount", "Date", "Recurrence", "Note");
+        println!("{}", "-".repeat(60));
+        for (i, t) in self.transactions.iter().enumerate() {
+            let recurrence_str = if let Some((ref period, count)) = t.recurrence {
+                format!("{} ({})", period, count)
+            } else {
+                "One-time".to_string()
+            };
+            println!("{:<5}  {:<9}  {:<10}  {:<13}  {}", i, t.amount, t.date.to_string(), recurrence_str, t.note);
         }
     }
 
-    fn list_transactions(&self) {
-        println!("{:<5}  {:<10}  {:<10}  {:<13}  {}", "Index", "Date", "Amount", "Recurrence", "Note");
-        println!("{}", "-".repeat(60));
-        for (i, t) in self.transactions.iter().enumerate() {
-            let recurrence = match &t.recurrence {
-                Some((period, count)) => format!("{} ({})", period, count),
-                None => "One-time".to_string(),
-            };
-            println!("{:<5}  {:<10}  {:<10}  {:<13}  {}", i, t.date.to_string(), t.amount, recurrence, t.note);
+    fn delete_transaction(&mut self, index: usize) {
+        if index < self.transactions.len() {
+            self.transactions.remove(index);
+        } else {
+            println!("Invalid transaction ID.");
         }
+    }
+
+    fn edit_transaction(&mut self, index: usize, new_amount: f64, new_date: NaiveDate, new_recurrence: Option<(String, usize)>, new_note: String) {
+        if let Some(t) = self.transactions.get_mut(index) {
+            t.amount = new_amount;
+            t.date = new_date;
+            t.recurrence = new_recurrence;
+            t.note = new_note;
+        } else {
+            println!("Invalid transaction ID.");
+        }
+    }
+
+    fn save_to_file(&self, filename: &str) {
+        let data = serde_json::to_string(self).expect("Failed to serialize");
+        fs::write(filename, data).expect("Failed to write file");
+    }
+
+    fn load_from_file(filename: &str) -> Self {
+        if let Ok(data) = fs::read_to_string(filename) {
+            if let Ok(state) = serde_json::from_str(&data) {
+                return state;
+            }
+        }
+        Self::new(0.0)
     }
 
     fn forecast(&self) {
@@ -101,20 +127,6 @@ impl BudgetState {
         //     println!("Balance reaches zero/negative within the displayed period.");
         // }
     }
-
-    fn save_to_file(&self, filename: &str) {
-        let data = serde_json::to_string(self).expect("Failed to serialize");
-        fs::write(filename, data).expect("Failed to write file");
-    }
-
-    fn load_from_file(filename: &str) -> Self {
-        if let Ok(data) = fs::read_to_string(filename) {
-            if let Ok(state) = serde_json::from_str(&data) {
-                return state;
-            }
-        }
-        Self::new(0.0)
-    }
 }
 
 fn main() {
@@ -122,7 +134,7 @@ fn main() {
     let mut budget = BudgetState::load_from_file(filename);
     
     loop {
-        println!("1. Add transaction\n2. View transactions\n3. Delete transaction\n4. View forecast\n5. Exit");
+        println!("\n1. Add transaction\n2. View transactions\n3. Delete transaction\n4. Edit transaction\n5. View forecast\n6. Exit");
         let mut choice = String::new();
         io::stdin().read_line(&mut choice).expect("Failed to read input");
         
@@ -164,16 +176,55 @@ fn main() {
             }
             "2" => budget.list_transactions(),
             "3" => {
-                println!("Enter transaction index to delete: ");
+                println!("Enter transaction ID to delete: ");
                 let mut index = String::new();
                 io::stdin().read_line(&mut index).expect("Failed to read input");
-                if let Ok(idx) = index.trim().parse::<usize>() {
-                    budget.delete_transaction(idx);
-                    budget.save_to_file(filename);
-                }
+                let index: usize = index.trim().parse().expect("Invalid number");
+                budget.delete_transaction(index);
+                budget.save_to_file(filename);
             }
-            "4" => budget.forecast(),
-            "5" => break,
+            "4" => {
+                println!("Enter transaction ID to edit: ");
+                let mut index = String::new();
+                io::stdin().read_line(&mut index).expect("Failed to read input");
+                let index: usize = index.trim().parse().expect("Invalid number");
+                
+                println!("Enter new amount: ");
+                let mut amount = String::new();
+                io::stdin().read_line(&mut amount).expect("Failed to read input");
+                let amount: f64 = amount.trim().parse().expect("Invalid amount");
+                
+                println!("Enter new date (YYYY-MM-DD): ");
+                let mut date = String::new();
+                io::stdin().read_line(&mut date).expect("Failed to read input");
+                let date = NaiveDate::parse_from_str(date.trim(), "%Y-%m-%d").expect("Invalid date format");
+                
+                println!("Enter new note: ");
+                let mut note = String::new();
+                io::stdin().read_line(&mut note).expect("Failed to read input");
+                
+                println!("Is this a recurring transaction? (yes/no)");
+                let mut recur = String::new();
+                io::stdin().read_line(&mut recur).expect("Failed to read input");
+                let recurrence = if recur.trim().eq_ignore_ascii_case("yes") {
+                    println!("Enter recurrence type (weekly/biweekly/monthly): ");
+                    let mut period = String::new();
+                    io::stdin().read_line(&mut period).expect("Failed to read input");
+                    
+                    println!("Enter number of occurrences: ");
+                    let mut count = String::new();
+                    io::stdin().read_line(&mut count).expect("Failed to read input");
+                    let count: usize = count.trim().parse().expect("Invalid number");
+                    Some((period.trim().to_string(), count))
+                } else {
+                    None
+                };
+                
+                budget.edit_transaction(index, amount, date, recurrence, note.trim().to_string());
+                budget.save_to_file(filename);
+            }
+            "5" => budget.forecast(),
+            "6" => break,
             _ => println!("Invalid option, try again."),
         }
     }
